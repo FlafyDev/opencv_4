@@ -1,5 +1,9 @@
 package ar.fgsoruco.opencv4
 
+import java.io.*
+import java.nio.file.*
+import java.nio.file.Paths
+
 import androidx.annotation.NonNull
 import ar.fgsoruco.opencv4.factory.colormaps.ApplyColorMapFactory
 import ar.fgsoruco.opencv4.factory.colorspace.CvtColorFactory
@@ -8,6 +12,7 @@ import ar.fgsoruco.opencv4.factory.miscellaneous.AdaptiveThresholdFactory
 import ar.fgsoruco.opencv4.factory.miscellaneous.DistanceTransformFactory
 import ar.fgsoruco.opencv4.factory.miscellaneous.ThresholdFactory
 
+import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -16,6 +21,13 @@ import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
 import org.opencv.android.OpenCVLoader
 import org.opencv.core.Core
+import org.opencv.objdetect.HOGDescriptor;
+import org.opencv.objdetect.CascadeClassifier;
+import org.opencv.core.*;
+import org.opencv.imgcodecs.Imgcodecs
+
+import io.flutter.plugin.common.StandardMethodCodec
+
 
 /** Opencv_4Plugin */
 class Opencv4Plugin: FlutterPlugin, MethodCallHandler {
@@ -25,10 +37,19 @@ class Opencv4Plugin: FlutterPlugin, MethodCallHandler {
   /// This local reference serves to register the plugin with the Flutter Engine and unregister it
   /// when the Flutter Engine is detached from the Activity
   private lateinit var channel : MethodChannel
+  private lateinit var hogDescriptorFace: HOGDescriptor
+  private lateinit var cascadeClassifier: CascadeClassifier
+  private var binding: FlutterPlugin.FlutterPluginBinding? = null
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "opencv_4")
+    val taskQueue =
+      flutterPluginBinding.binaryMessenger.makeBackgroundTaskQueue()
+    channel = MethodChannel(flutterPluginBinding.binaryMessenger,
+                            "opencv_4",
+                            StandardMethodCodec.INSTANCE,
+                            taskQueue)
     channel.setMethodCallHandler(this)
+    binding = flutterPluginBinding;
   }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -38,9 +59,63 @@ class Opencv4Plugin: FlutterPlugin, MethodCallHandler {
       } else {
         OpenCVFLag = true;
       }
+      hogDescriptorFace = HOGDescriptor();
+      hogDescriptorFace.setSVMDetector(HOGDescriptor.getDefaultPeopleDetector());
+
+      val outputDir = binding!!.getApplicationContext().getCacheDir();
+      val file: File = File.createTempFile("temp", ".xml", outputDir);
+
+      val assetPath: String = binding!!
+        .getFlutterAssets()
+        .getAssetFilePathBySubpath("assets/haarcascade_frontalface_default.xml", "opencv_4");
+
+      val inputStream = binding!!.getApplicationContext().getAssets().open(assetPath);
+      inputStream.use { input ->
+        Files.copy(input, file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+      }
+
+      cascadeClassifier = CascadeClassifier(file.absolutePath);
     }
 
     when (call.method) {
+      "containsFace" -> {
+        try {
+          val data = call.argument<ByteArray>("data") as ByteArray;
+          val src = Imgcodecs.imdecode(MatOfByte(*data), Imgcodecs.IMREAD_UNCHANGED);
+
+          val faces = MatOfPoint();
+          val weights = MatOfDouble();
+  
+          hogDescriptorFace.detect(src, faces, weights, 0.0, Size(2.0, 2.0), Size(8.0, 8.0))
+              // Size(2.0, 2.0), //winSize
+              // Size(0.0, 0.0), //blocksize
+              // 1.05,
+              // 2.0,false);
+
+          if (faces.toList().size > 0) {
+            result.success(true);
+            return;
+            // weights.toArray().forEach { 
+            //   if (it > 0.2) {
+            //     result.success(true);
+            //     return;
+            //   }
+            // }
+          }
+
+          val faces2 = MatOfRect();
+          cascadeClassifier.detectMultiScale(src, faces2, 1.1);
+
+          if (faces2.toList().size > 0) {
+            result.success(true);
+            return;
+          }
+
+          result.success(false)
+        } catch (e: Exception) {
+          result.error("OpenCV-Error", "Android: "+e.message, e)
+        }
+      }
 
       "getVersion" -> {
         try {
@@ -317,5 +392,6 @@ class Opencv4Plugin: FlutterPlugin, MethodCallHandler {
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
+    this.binding = null;
   }
 }

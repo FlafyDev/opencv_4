@@ -22,6 +22,7 @@ import 'package:opencv_4/factory/miscellaneoustransform/adaptivethreshold_factor
 import 'package:opencv_4/factory/miscellaneoustransform/distancetransform_factory.dart';
 import 'package:opencv_4/factory/miscellaneoustransform/threshold_factory.dart';
 import 'package:opencv_4/factory/pathfrom.dart';
+import 'package:opencv_4/factory/utils.dart';
 
 /// class that contains the implementation of OpenCV modules
 class Cv2 {
@@ -315,6 +316,19 @@ class Cv2 {
     }
     return version;
   }
+
+  static Future<bool?> containsFace({
+    required Uint8List data,
+  }) async {
+    final bool? result = await platform.invokeMethod(
+      'containsFace',
+      {
+        "data": data,
+      },
+    );
+    return result;
+  }
+
 
   /// [bilateralFilter] function of Module: Image Filtering
   static Future<Uint8List?> bilateralFilter({
